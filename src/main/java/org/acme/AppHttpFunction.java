@@ -1,20 +1,22 @@
 package org.acme;
 
 import jakarta.inject.Inject;
-import jakarta.ws.rs.GET;
+import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 
-@Path("/")
+@Path("/invoice")
 public class AppHttpFunction {
 
     @Inject
-    GreetingService greetingService;
+    VisionService visionService;
 
-    @GET
-    @Produces(MediaType.TEXT_PLAIN)
-    public String hello() {
-        return greetingService.hello();
+    @POST
+    @Consumes(MediaType.TEXT_PLAIN)
+    @Produces(MediaType.APPLICATION_JSON)
+    public InvoiceData processInvoice(String base64Image) {
+        return visionService.extractInvoiceData(base64Image);
     }
 }

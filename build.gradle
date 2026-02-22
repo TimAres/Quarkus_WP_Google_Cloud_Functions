@@ -13,6 +13,10 @@ dependencies {
     implementation 'io.quarkus:quarkus-rest'
     implementation 'io.quarkus:quarkus-google-cloud-functions-http'
     implementation 'io.quarkus:quarkus-arc'
+    //Google Cloud Vision
+    implementation 'com.google.cloud:google-cloud-vision:3.34.0'
+    //To Convert text output into Json -> So i can work better with Databases
+    implementation 'io.quarkus:quarkus-rest-jackson'
     // Testing
     testImplementation 'io.quarkus:quarkus-junit5'
 }
