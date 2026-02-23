@@ -6,6 +6,7 @@ import com.google.cloud.vision.v1.BatchAnnotateImagesResponse;
 import com.google.cloud.vision.v1.Feature;
 import com.google.cloud.vision.v1.Image;
 import com.google.cloud.vision.v1.ImageAnnotatorClient;
+import com.google.cloud.vision.v1.ImageAnnotatorSettings;
 import com.google.protobuf.ByteString;
 import jakarta.enterprise.context.ApplicationScoped;
 
@@ -17,44 +18,55 @@ import java.util.List;
 public class VisionService {
 
     public InvoiceData extractInvoiceData(String base64Image) {
-        // The client automatically connects to the Google Cloud Vision API
-        try (ImageAnnotatorClient client = ImageAnnotatorClient.create()) {
-
-            // 1. Convert the Base64 string back into raw bytes
-            byte[] decodedBytes = Base64.getDecoder().decode(base64Image);
-            ByteString imgBytes = ByteString.copyFrom(decodedBytes);
-
-            // 2. Build the Image object required by the Google Vision API
-            Image img = Image.newBuilder().setContent(imgBytes).build();
-
-            // 3. Set the mode: We want document text detection for dense texts like invoices
-            Feature feat = Feature.newBuilder().setType(Feature.Type.DOCUMENT_TEXT_DETECTION).build();
-
-            // 4. Assemble the request
-            AnnotateImageRequest request = AnnotateImageRequest.newBuilder()
-                    .addFeatures(feat)
-                    .setImage(img)
+        try {
+            // ARCHITECTURE DECISION:
+            // We explicitly force the Google Cloud Vision Client to use standard HTTP/JSON (REST)
+            // instead of the default gRPC protocol.
+            // Why? Because GraalVM (Native Image) aggressively removes dynamic gRPC/Netty classes
+            // during the Ahead-of-Time (AOT) compilation, which would cause a crash in Cloud Run.
+            ImageAnnotatorSettings settings = ImageAnnotatorSettings.newBuilder()
+                    .setTransportChannelProvider(ImageAnnotatorSettings.defaultHttpJsonTransportProviderBuilder().build())
                     .build();
 
-            List<AnnotateImageRequest> requests = new ArrayList<>();
-            requests.add(request);
+            // Initialize the client with our custom REST settings
+            try (ImageAnnotatorClient client = ImageAnnotatorClient.create(settings)) {
 
-            // 5. Fire the request to the Google API
-            BatchAnnotateImagesResponse response = client.batchAnnotateImages(requests);
-            List<AnnotateImageResponse> responses = response.getResponsesList();
+                // 1. Convert the Base64 string back into raw bytes
+                byte[] decodedBytes = Base64.getDecoder().decode(base64Image);
+                ByteString imgBytes = ByteString.copyFrom(decodedBytes);
 
-            // 6. Evaluate the response
-            for (AnnotateImageResponse res : responses) {
-                if (res.hasError()) {
-                    System.err.println("Error from Google API: " + res.getError().getMessage());
-                    return new InvoiceData("Google API Error", "", "");
+                // 2. Build the Image object required by the Google Vision API
+                Image img = Image.newBuilder().setContent(imgBytes).build();
+
+                // 3. Set the mode: We want document text detection for dense texts like invoices
+                Feature feat = Feature.newBuilder().setType(Feature.Type.DOCUMENT_TEXT_DETECTION).build();
+
+                // 4. Assemble the request
+                AnnotateImageRequest request = AnnotateImageRequest.newBuilder()
+                        .addFeatures(feat)
+                        .setImage(img)
+                        .build();
+
+                List<AnnotateImageRequest> requests = new ArrayList<>();
+                requests.add(request);
+
+                // 5. Fire the request to the Google API
+                BatchAnnotateImagesResponse response = client.batchAnnotateImages(requests);
+                List<AnnotateImageResponse> responses = response.getResponsesList();
+
+                // 6. Evaluate the response
+                for (AnnotateImageResponse res : responses) {
+                    if (res.hasError()) {
+                        System.err.println("Error from Google API: " + res.getError().getMessage());
+                        return new InvoiceData("Google API Error", "", "");
+                    }
+
+                    // Extract the raw text and pass it to our custom parser
+                    String rawText = res.getFullTextAnnotation().getText();
+                    return parseInvoiceText(rawText);
                 }
 
-                // Extract the raw text and pass it to our custom parser
-                String rawText = res.getFullTextAnnotation().getText();
-                return parseInvoiceText(rawText);
             }
-
         } catch (Exception e) {
             e.printStackTrace();
             return new InvoiceData("Exception", e.getMessage(), "");
