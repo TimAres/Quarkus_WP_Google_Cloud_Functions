@@ -2,6 +2,22 @@
 .gradle/
 build/
 
+# ----------------------------------------------------------------------
+# Custom Deployment & Serverless Artifacts (My Additions)
+# ----------------------------------------------------------------------
+deploy-native/application
+deploy-native/*.zip
+bootstrap
+function.zip
+
+# ----------------------------------------------------------------------
+# Security: Google Cloud Credentials & Secrets
+# ----------------------------------------------------------------------
+*srs-wp-project*.json
+*-key.json
+credentials.json
+# ----------------------------------------------------------------------
+
 # Eclipse
 .project
 .classpath
@@ -21,8 +37,9 @@ nb-configuration.xml
 .vscode
 .factorypath
 
-# OSX
+# OSX / Linux
 .DS_Store
+*~
 
 # Vim
 *.swp
