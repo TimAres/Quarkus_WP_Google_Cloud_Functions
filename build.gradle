@@ -19,6 +19,10 @@ dependencies {
     implementation 'io.quarkus:quarkus-rest-jackson'
     // Testing
     testImplementation 'io.quarkus:quarkus-junit5'
+    // For the Pipeline we need to Mock the Repository. Sonst fliegt sie uns: "Du Spinnst wohl!"
+    testImplementation 'io.quarkus:quarkus-junit5-mockito'
+    // Simulate http calls
+    testImplementation 'io.rest-assured:rest-assured'
 }
 
 group = 'org.acme'
