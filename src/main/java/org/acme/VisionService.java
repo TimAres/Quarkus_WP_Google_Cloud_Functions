@@ -1,119 +1,111 @@
 package org.acme;
 
-import com.google.cloud.vision.v1.AnnotateImageRequest;
-import com.google.cloud.vision.v1.AnnotateImageResponse;
-import com.google.cloud.vision.v1.BatchAnnotateImagesResponse;
-import com.google.cloud.vision.v1.Feature;
-import com.google.cloud.vision.v1.Image;
-import com.google.cloud.vision.v1.ImageAnnotatorClient;
-import com.google.cloud.vision.v1.ImageAnnotatorSettings;
-import com.google.protobuf.ByteString;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 
-import java.util.ArrayList;
-import java.util.Base64;
-import java.util.List;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URI;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
 
 @ApplicationScoped
 public class VisionService {
 
+    @Inject
+    ObjectMapper objectMapper;
+
+    @ConfigProperty(name = "google.vision.api.key")
+    String apiKey;
+
     public InvoiceData extractInvoiceData(String base64Image) {
         try {
-            // ARCHITECTURE DECISION: Force standard HTTP/JSON (REST) instead of gRPC.
-            // This prevents crashes in GraalVM native images where dynamic gRPC/Netty loading is problematic.
-            ImageAnnotatorSettings settings = ImageAnnotatorSettings.newBuilder()
-                    .setTransportChannelProvider(ImageAnnotatorSettings.defaultHttpJsonTransportProviderBuilder().build())
-                    .build();
+            // 1. Build JSON request payload
+            ObjectNode requestRoot = objectMapper.createObjectNode();
+            ArrayNode requests = requestRoot.putArray("requests");
+            ObjectNode request = requests.addObject();
 
-            try (ImageAnnotatorClient client = ImageAnnotatorClient.create(settings)) {
+            ObjectNode image = request.putObject("image");
+            image.put("content", base64Image);
 
-                // 1. Decode the Base64 image string provided by the frontend
-                byte[] decodedBytes = Base64.getDecoder().decode(base64Image);
-                ByteString imgBytes = ByteString.copyFrom(decodedBytes);
+            ArrayNode features = request.putArray("features");
+            ObjectNode feature = features.addObject();
+            feature.put("type", "DOCUMENT_TEXT_DETECTION");
 
-                Image img = Image.newBuilder().setContent(imgBytes).build();
+            String jsonPayload = objectMapper.writeValueAsString(requestRoot);
 
-                // 2. Use DOCUMENT_TEXT_DETECTION for better results on dense receipt text
-                Feature feat = Feature.newBuilder().setType(Feature.Type.DOCUMENT_TEXT_DETECTION).build();
+            // 2. Use classic HttpURLConnection (100% GraalVM safe, strictly synchronous, no thread pools)
+            URL url = new URI("https://vision.googleapis.com/v1/images:annotate?key=" + apiKey).toURL();
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("POST");
+            conn.setRequestProperty("Content-Type", "application/json");
+            conn.setDoOutput(true);
+            conn.setConnectTimeout(10000);
+            conn.setReadTimeout(10000);
 
-                AnnotateImageRequest request = AnnotateImageRequest.newBuilder()
-                        .addFeatures(feat)
-                        .setImage(img)
-                        .build();
-
-                List<AnnotateImageRequest> requests = new ArrayList<>();
-                requests.add(request);
-
-                // 3. Request OCR analysis from Google Cloud Vision
-                BatchAnnotateImagesResponse response = client.batchAnnotateImages(requests);
-                List<AnnotateImageResponse> responses = response.getResponsesList();
-
-                for (AnnotateImageResponse res : responses) {
-                    if (res.hasError()) {
-                        System.err.println("Google API Error: " + res.getError().getMessage());
-                        return new InvoiceData("Google API Error", "", "");
-                    }
-
-                    // 4. Pass the full text result to our robust parser
-                    String rawText = res.getFullTextAnnotation().getText();
-                    return parseInvoiceText(rawText);
-                }
-
+            // Write payload
+            try (OutputStream os = conn.getOutputStream()) {
+                byte[] input = jsonPayload.getBytes(StandardCharsets.UTF_8);
+                os.write(input, 0, input.length);
             }
+
+            // 3. Send and Parse
+            int statusCode = conn.getResponseCode();
+            if (statusCode != 200) {
+                return new InvoiceData("Google API HTTP Error", String.valueOf(statusCode), "");
+            }
+
+            String responseBody;
+            try (InputStream is = conn.getInputStream()) {
+                responseBody = new String(is.readAllBytes(), StandardCharsets.UTF_8);
+            }
+
+            JsonNode responseRoot = objectMapper.readTree(responseBody);
+            JsonNode responsesNode = responseRoot.path("responses").get(0);
+
+            String rawText = responsesNode.path("fullTextAnnotation").path("text").asText();
+            if (rawText.isEmpty()) {
+                return new InvoiceData("No text found", "", "");
+            }
+
+            return parseInvoiceText(rawText);
+
         } catch (Exception e) {
-            e.printStackTrace();
             return new InvoiceData("Exception", e.getMessage(), "");
         }
-
-        return new InvoiceData("No text found", "", "");
     }
 
-    /**
-     * Enhanced Parsing Logic: Specifically adjusted for German receipts (Aldi, Apotheke, Rewe, etc.)
-     */
     private InvoiceData parseInvoiceText(String rawText) {
         String store = "Unknown";
         String date = "Unknown";
         String total = "Unknown";
-
         String[] lines = rawText.split("\n");
 
-        // STEP 1: Store Detection
-        // Usually the first non-empty line that doesn't contain technical artifacts
         for (int i = 0; i < Math.min(5, lines.length); i++) {
             String line = lines[i].trim();
-            if (line.isEmpty() || line.contains("←") || line.toLowerCase().contains("ebon")) {
-                continue;
+            if (!line.isEmpty() && !line.contains("←")) {
+                store = line;
+                break;
             }
-            store = line;
-            break;
         }
 
-        // STEP 2: Iterate lines to find Date and Total Amount
-        for (int i = 0; i < lines.length; i++) {
-            String line = lines[i].trim();
-
-            // Date Detection: Matches DD.MM.YYYY and DD.MM.YY (e.g., 02.02.26)
-            if (line.matches(".*\\d{2}\\.\\d{2}\\.(20)?\\d{2}.*") && date.equals("Unknown")) {
-                date = line;
+        for (String line : lines) {
+            String trimmed = line.trim();
+            if (trimmed.matches(".*\\d{2}\\.\\d{2}\\.(20)?\\d{2}.*") && date.equals("Unknown")) {
+                date = trimmed;
             }
-
-            // Total Amount Detection: Scan for common German keywords
-            String upperLine = line.toUpperCase();
-            if (upperLine.contains("SUMME") || upperLine.contains("GESAMT") ||
-                    upperLine.contains("ZU ZAHLEN") || upperLine.contains("TOTAL")) {
-
-                // Once keyword is found, look at the same line and the next two lines for a price
-                for (int j = i; j <= i + 2 && j < lines.length; j++) {
-                    // Match numbers like 16,59 or 22.50
-                    if (lines[j].matches(".*\\d+[.,]\\d{2}.*")) {
-                        total = lines[j].trim() + " €";
-                        break;
-                    }
+            if (trimmed.toUpperCase().matches(".*(SUMME|GESAMT|TOTAL).*") || trimmed.matches(".*\\d+[.,]\\d{2}.*")) {
+                if (trimmed.matches(".*\\d+[.,]\\d{2}.*")) {
+                    total = trimmed + " €";
                 }
             }
         }
-
         return new InvoiceData(store, date, total);
     }
 }

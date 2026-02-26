@@ -2,11 +2,7 @@
 .gradle/
 build/
 
-# ----------------------------------------------------------------------
-# Custom Deployment & Serverless Artifacts (My Additions)
-# ----------------------------------------------------------------------
-deploy-native/application
-deploy-native/*.zip
+# Serverless / deployment artifacts
 bootstrap
 function.zip
 
@@ -16,6 +12,10 @@ function.zip
 *srs-wp-project*.json
 *-key.json
 credentials.json
+.env
+# Local config overrides (may contain real API keys – never commit)
+application-local.properties
+**/application-local.properties
 # ----------------------------------------------------------------------
 
 # Eclipse
