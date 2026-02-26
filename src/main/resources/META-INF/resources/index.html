@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KI Kassenbon-Scanner</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; padding: 20px; max-width: 600px; margin: 0 auto; background-color: #f8f9fa; }
+        .card { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); text-align: center; }
+        h2 { color: #333; margin-top: 0; }
+        button { background: #007bff; color: white; border: none; padding: 12px 20px; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; margin-top: 15px; width: 100%; transition: background 0.2s; }
+        button:hover { background: #0056b3; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        input[type="file"] { margin: 20px 0; width: 100%; }
+        #result { margin-top: 25px; text-align: left; display: none; background: #e9ecef; padding: 20px; border-radius: 8px; border-left: 5px solid #007bff; }
+        .loader { display: none; margin: 20px auto; border: 4px solid #f3f3f3; border-top: 4px solid #007bff; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+<div class="card">
+    <h2>🧾 KI Bon-Scanner</h2>
+    <p>Kamera öffnen oder Bild hochladen.</p>
+
+    <input type="file" id="imageInput" accept="image/*" capture="environment">
+    <button id="uploadBtn" onclick="uploadImage()">Beleg analysieren</button>
+
+    <div class="loader" id="loader"></div>
+
+    <div id="result">
+        <p><strong>🏪 Geschäft:</strong> <span id="resStore"></span></p>
+        <p><strong>📅 Datum:</strong> <span id="resDate"></span></p>
+        <p><strong>💶 Summe:</strong> <span id="resTotal"></span></p>
+    </div>
+</div>
+
+<script>
+    // Ask for password once when the app starts
+    let appToken = localStorage.getItem("scanner_token");
+    if (!appToken) {
+        appToken = prompt("Bitte App-Passwort eingeben:");
+        if (appToken) localStorage.setItem("scanner_token", appToken);
+    }
+
+    async function uploadImage() {
+        const fileInput = document.getElementById('imageInput');
+        const resultDiv = document.getElementById('result');
+        const loader = document.getElementById('loader');
+        const btn = document.getElementById('uploadBtn');
+
+        if (fileInput.files.length === 0) {
+            alert('Bitte wähle zuerst ein Bild aus!');
+            return;
+        }
+
+        btn.disabled = true;
+        loader.style.display = 'block';
+        resultDiv.style.display = 'none';
+
+        const file = fileInput.files[0];
+        const reader = new FileReader();
+
+        reader.onload = async function(event) {
+            const base64Data = event.target.result.split(',')[1];
+
+            try {
+                const response = await fetch('/invoice', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'text/plain',
+                        'X-Auth-Token': appToken // Send the password in the custom header
+                    },
+                    body: base64Data
+                });
+
+                if (response.status === 401) {
+                    localStorage.removeItem("scanner_token");
+                    alert("Falsches Passwort! Bitte Seite neu laden.");
+                    return;
+                }
+
+                if (!response.ok) throw new Error('Analyse fehlgeschlagen.');
+
+                const data = await response.json();
+                document.getElementById('resStore').innerText = data.store;
+                document.getElementById('resDate').innerText = data.date;
+                document.getElementById('resTotal').innerText = data.total;
+                resultDiv.style.display = 'block';
+            } catch (error) {
+                alert('Fehler: ' + error.message);
+            } finally {
+                loader.style.display = 'none';
+                btn.disabled = false;
+            }
+        };
+        reader.readAsDataURL(file);
+    }
+</script>
+</body>
+</html>

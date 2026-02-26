@@ -7,4 +7,15 @@ package org.acme;
  * @param total the total amount of the invoice
  */
 public record InvoiceData(String store, String date, String total) {
+    public String getStore() {
+        return store;
+    }
+
+    public String getDate() {
+        return date;
+    }
+
+    public String getTotal() {
+        return total;
+    }
 }
