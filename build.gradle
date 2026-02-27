@@ -21,6 +21,9 @@ dependencies {
     // Pure Jackson
     implementation 'io.quarkus:quarkus-jackson'
 
+    // Vision API per Dienstkonto (ADC) – kein API-Key nötig auf Cloud Run
+    implementation 'com.google.cloud:google-cloud-vision:3.78.0'
+
     // Sauberes Logging-Routing für das Google SDK
     implementation 'org.jboss.logmanager:log4j2-jboss-logmanager'
     implementation 'org.jboss.slf4j:slf4j-jboss-logmanager'

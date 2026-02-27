@@ -1,13 +1,14 @@
-# Optimizing Quarkus Applications with Google Cloud Functions
+# Optimizing Quarkus Applications with Google Cloud Functions (Gen 2)
 
 This project uses [Quarkus](https://quarkus.io/) to implement a **Google Cloud Function** (HTTP) that demonstrates optimization techniques for serverless Java:
 
-- **Quarkus** for fast startup and low footprint (suitable for cold starts).
-- **quarkus-google-cloud-functions-http**: REST (JAX-RS) locally and deployable as GCF; token-based auth.
-- **Google Cloud Vision API** for document text extraction (e.g. invoice OCR).
-- **JVM-first**: Deployment as JVM container on Cloud Run (native build currently not supported due to GraalVM JDK 21 strict image heap).
+- **Quarkus** for fast startup and low footprint (suitable for cold starts in serverless environments).
+- **quarkus-google-cloud-functions-http**: Provides a lightweight bridge to run standard REST (JAX-RS) endpoints locally and seamlessly deploy them as a Google Cloud Function.
+- **Google Cloud Vision API** for document text extraction (e.g., invoice OCR).
+- **Identity & Security (ADC)**: API authentication is handled purely via Google's Application Default Credentials (ADC) by attaching a specific Service Account – no hardcoded API keys needed.
+- **JVM-first**: Deployed as a highly optimized JVM artifact on Cloud Functions Gen 2 (which runs on Cloud Run infrastructure under the hood).
 
-**Secrets:** Do not commit API keys or passwords. For production, set `google.vision.api.key` and `APP_PASSWORD` via environment variables (e.g. in Cloud Run).
+**Secrets:** Set `APP_PASSWORD` during deployment as an environment variable to secure the frontend. The Vision API accesses the Cloud via the attached Service Account (e.g., `vision-api-caller` with the role "Cloud Vision API User").
 
 If you want to learn more about Quarkus, please visit its website: <https://quarkus.io/>.
 
@@ -15,54 +16,47 @@ If you want to learn more about Quarkus, please visit its website: <https://quar
 
 You can run your application in dev mode that enables live coding using:
 
-```shell script
+```bash
 ./gradlew quarkusDev
 ```
 
 The app listens on **http://localhost:8080/** (start page at `/` and `/index.html`, API at `POST /invoice`). You should see a line like `Listening on http://localhost:8080` in the log. The Dev UI is at <http://localhost:8080/q/dev/>.
 
-## Packaging and running the application
+*(Note: If port 8080 is blocked, you can pass `-Dquarkus.http.port=8081` to use a different port).*
 
-The application can be packaged using:
+## Packaging the application for Google Cloud
 
-```shell script
-./gradlew build
+The application can be packaged using the standard Gradle build command:
+
+```bash
+./gradlew clean build
 ```
 
-It produces the `quarkus-run.jar` file in the `build/quarkus-app/` directory.
-Be aware that it's not an _über-jar_ as the dependencies are copied into the `build/quarkus-app/lib/` directory.
+**Important for Deployment:** Because we are using the `quarkus-google-cloud-functions-http` extension, Quarkus does not just build a `.jar`. It automatically generates a specialized `build/deployment` directory. This directory contains the exact structure and dependencies required by the Google Cloud Functions runtime.
 
-The application is now runnable using `java -jar build/quarkus-app/quarkus-run.jar`.
+## Deploy to Google Cloud Functions (2nd Gen)
 
-If you want to build an _über-jar_, execute the following command:
+Instead of manually building Docker containers, we utilize the official Google Cloud CLI to deploy the prepared Quarkus artifact directly as a 2nd Generation Cloud Function.
 
-```shell script
-./gradlew build -Dquarkus.package.jar.type=uber-jar
+Deploy the application using the following command (replace `PROJECT_ID` and the password accordingly):
+
+```bash
+gcloud functions deploy quarkus-vision-invoice \
+  --gen2 \
+  --runtime=java21 \
+  --trigger-http \
+  --allow-unauthenticated \
+  --entry-point=io.quarkus.gcp.functions.http.QuarkusHttpFunction \
+  --source=build/deployment \
+  --region=europe-west3 \
+  --service-account=vision-api-caller@PROJECT_ID.iam.gserviceaccount.com \
+  --set-env-vars APP_PASSWORD=dein-geheimes-passwort
 ```
 
-The application, packaged as an _über-jar_, is now runnable using `java -jar build/*-runner.jar`.
-
-## Deploy to Google Cloud Run
-
-Use the **JVM** build with the [Quarkus Google Cloud Functions HTTP](https://quarkus.io/guides/gcp-functions-http) extension and deploy the resulting container to **Cloud Run** (Cloud Functions 2nd gen runs on Cloud Run):
-
-1. **Build the app** (default layout; the JVM Dockerfile expects `build/quarkus-app/`):
-   ```shell script
-   ./gradlew build
-   ```
-
-2. **Build the container image** (JVM Dockerfile):
-   ```shell script
-   docker build -f src/main/docker/Dockerfile.jvm -t gcr.io/YOUR_PROJECT_ID/google-cloud-functions .
-   ```
-
-3. **Push and deploy:**
-   ```shell script
-   docker push gcr.io/YOUR_PROJECT_ID/google-cloud-functions
-   gcloud run deploy google-cloud-functions --image gcr.io/YOUR_PROJECT_ID/google-cloud-functions --platform managed --region YOUR_REGION
-   ```
-
-Replace `YOUR_PROJECT_ID` and `YOUR_REGION`.
+**What happens here:**
+1. `--source=build/deployment`: Uploads the optimized Quarkus build.
+2. `--entry-point=...QuarkusHttpFunction`: Uses the Quarkus-provided bridge to route incoming HTTP requests to your JAX-RS endpoints.
+3. `--service-account`: Attaches the identity to the function so the Vision API SDK can authenticate automatically via ADC.
 
 ## Related Guides
 
