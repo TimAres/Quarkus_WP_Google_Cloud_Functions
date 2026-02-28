@@ -11,7 +11,8 @@
         button { background: #007bff; color: white; border: none; padding: 12px 20px; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; margin-top: 15px; width: 100%; transition: background 0.2s; }
         button:hover { background: #0056b3; }
         button:disabled { background: #ccc; cursor: not-allowed; }
-        input[type="file"] { margin: 20px 0; width: 100%; }
+        input[type="file"], input[type="password"] { margin: 10px 0 20px 0; width: 100%; box-sizing: border-box; }
+        input[type="password"] { padding: 10px; border-radius: 8px; border: 1px solid #ccc; font-size: 16px; }
         #result { margin-top: 25px; text-align: left; display: none; background: #e9ecef; padding: 20px; border-radius: 8px; border-left: 5px solid #007bff; }
         .loader { display: none; margin: 20px auto; border: 4px solid #f3f3f3; border-top: 4px solid #007bff; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
@@ -19,8 +20,10 @@
 </head>
 <body>
 <div class="card">
-    <h2>🧾 KI Bon-Scanner</h2>
+    <h2>🧾 Bon-Scanner</h2>
     <p>Kamera öffnen oder Bild hochladen.</p>
+
+    <input type="password" id="appToken" placeholder="Passwort eingeben">
 
     <input type="file" id="imageInput" accept="image/*" capture="environment">
     <button id="uploadBtn" onclick="uploadImage()">Beleg analysieren</button>
@@ -35,18 +38,17 @@
 </div>
 
 <script>
-    // Ask for password once when the app starts
-    let appToken = localStorage.getItem("scanner_token");
-    if (!appToken) {
-        appToken = prompt("Bitte App-Passwort eingeben:");
-        if (appToken) localStorage.setItem("scanner_token", appToken);
-    }
-
     async function uploadImage() {
         const fileInput = document.getElementById('imageInput');
+        const tokenInput = document.getElementById('appToken').value;
         const resultDiv = document.getElementById('result');
         const loader = document.getElementById('loader');
         const btn = document.getElementById('uploadBtn');
+
+        if (!tokenInput) {
+            alert('Bitte gib das App-Passwort ein!');
+            return;
+        }
 
         if (fileInput.files.length === 0) {
             alert('Bitte wähle zuerst ein Bild aus!');
@@ -64,22 +66,22 @@
             const base64Data = event.target.result.split(',')[1];
 
             try {
-                const response = await fetch('/invoice', {
+                const baseUrl = window.location.href.split('?')[0].replace(/\/$/, "");
+                const response = await fetch(baseUrl + '/invoice', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'text/plain',
-                        'X-Auth-Token': appToken // Send the password in the custom header
+                        'X-Auth-Token': tokenInput
                     },
                     body: base64Data
                 });
 
                 if (response.status === 401) {
-                    localStorage.removeItem("scanner_token");
-                    alert("Falsches Passwort! Bitte Seite neu laden.");
+                    alert("Zugriff verweigert: Falsches Passwort!");
                     return;
                 }
 
-                if (!response.ok) throw new Error('Analyse fehlgeschlagen.');
+                if (!response.ok) throw new Error('Analyse fehlgeschlagen (Status: ' + response.status + ')');
 
                 const data = await response.json();
                 document.getElementById('resStore').innerText = data.store;
