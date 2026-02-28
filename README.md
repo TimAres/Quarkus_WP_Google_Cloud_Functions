@@ -37,6 +37,7 @@ The application can be packaged using the standard Gradle build command:
 ## Deploy to Google Cloud Functions (2nd Gen)
 
 Instead of manually building Docker containers, we utilize the official Google Cloud CLI to deploy the prepared Quarkus artifact directly as a 2nd Generation Cloud Function.
+Please Note, that you need to set a secret for Google Vision or have other ways to Identify.
 
 Deploy the application using the following command (replace `PROJECT_ID` and the password accordingly):
 
